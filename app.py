@@ -2,7 +2,7 @@ import streamlit as st
 from news_scraper import fetch_wyoming_news
 from ai_processor import process_news
 
-st.set_page_config(layout="wide", page_title="Wyoming Policy Related News Tracker")
+st.set_page_config(layout="wide", page_title="Wyoming Policy News")
 
 # Custom CSS for UI polish (cards, grids, badges)
 st.markdown("""
@@ -60,7 +60,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("Wyoming Policy Tracker")
+st.title("Wyoming Policy News")
 st.markdown("Automated News Aggregation & AI Analysis")
 
 # Initialize Session State
