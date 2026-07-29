@@ -6,7 +6,9 @@ WYOMING_FEEDS = [
     {"source": "WyoFile", "url": "https://wyofile.com/feed/"},
     {"source": "Oil City News", "url": "https://oilcity.news/feed/"},
     {"source": "Cap City News", "url": "https://capcity.news/feed/"},
-    {"source": "Cowboy State Daily", "url": "https://cowboystatedaily.com/feed/"}
+    {"source": "Cowboy State Daily", "url": "https://cowboystatedaily.com/feed/"},
+    {"source": "Casper Star-Tribune", "url": "https://trib.com/search/?f=rss&t=article&l=50&s=start_time&sd=desc"},
+    {"source": "Wyoming Public Media", "url": "https://www.wyomingpublicmedia.org/arc/outboundfeeds/rss/"}
 ]
 
 def clean_html(raw_html):
