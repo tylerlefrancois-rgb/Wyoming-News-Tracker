@@ -2,7 +2,7 @@ import streamlit as st
 from news_scraper import fetch_wyoming_news
 from ai_processor import process_news
 
-st.set_page_config(layout="wide", page_title="Wyoming Policy News")
+st.set_page_config(layout="wide", page_title="Wyoming Policy Tracker")
 
 # Custom CSS for UI polish (cards, grids, badges)
 st.markdown("""
@@ -60,8 +60,16 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("Wyoming Policy News")
+st.title("Wyoming Policy Tracker")
 st.markdown("Automated News Aggregation & AI Analysis")
+
+# 1. CACHING ADDED HERE
+# This prevents the app from burning API credits on every page interaction
+@st.cache_data(ttl=3600) # Caches data for 1 hour
+def get_cached_news():
+    articles = fetch_wyoming_news()
+    top_stories, policy_areas = process_news(articles)
+    return top_stories, policy_areas
 
 # Initialize Session State
 if "analysis_complete" not in st.session_state:
@@ -69,11 +77,16 @@ if "analysis_complete" not in st.session_state:
     st.session_state.top_stories = []
     st.session_state.policy_areas = {}
 
+# 2. SIDEBAR LINKS ADDED HERE
 with st.sidebar:
+    st.markdown("### 🏛️ Resources")
+    st.markdown("🔗 [Wyoming Liberty Group](https://wyliberty.org)")
+    st.markdown("🔗 [WyLiberty Research](https://wylibertyresearch.org)")
+    st.markdown("---")
+    
     if st.button("Fetch & Analyze Latest News", type="primary"):
         with st.spinner("Fetching and analyzing data..."):
-            articles = fetch_wyoming_news()
-            top_stories, policy_areas = process_news(articles)
+            top_stories, policy_areas = get_cached_news()
             
             st.session_state.top_stories = top_stories
             st.session_state.policy_areas = policy_areas
@@ -93,6 +106,10 @@ def render_badges(story):
 
 # Main UI Rendering
 if st.session_state.analysis_complete:
+    
+    # 3. SEARCH BAR ADDED HERE
+    search_query = st.text_input("🔍 Search Policy News...", "").lower()
+    
     st.markdown("## 🔥 Top 5 Wyoming Stories")
     
     # CSS Grid Layout for Top 5
@@ -100,9 +117,13 @@ if st.session_state.analysis_complete:
     for story in st.session_state.top_stories:
         title = story.get('title', 'Headline')
         summary = story.get('summary', '').replace('[Source]', '').strip()
+        
+        # Search Filter Logic for Top Stories
+        if search_query and search_query not in title.lower() and search_query not in summary.lower():
+            continue
+            
         badges = render_badges(story)
         
-        # No indentation here to prevent Streamlit from rendering it as a Markdown code block
         grid_html += f"""<div class="story-card">
 <div class="card-title">{title}</div>
 <div class="card-summary">{summary}</div>
@@ -115,24 +136,30 @@ if st.session_state.analysis_complete:
     st.markdown("---")
     st.markdown("## 🏛️ Policy Area Breakdown")
     
-    # Two-column layout for specific policy areas
     col1, col2 = st.columns(2)
     cols = [col1, col2]
     
     for i, (policy_name, stories) in enumerate(st.session_state.policy_areas.items()):
-        with cols[i % 2]:
-            st.markdown(f"### {policy_name}")
-            for story in stories:
-                title = story.get('title', 'Headline')
-                summary = story.get('summary', '').replace('[Source]', '').strip()
-                badges = render_badges(story)
-                
-                # No indentation here either
-                card_html = f"""<div class="policy-card">
+        # Filter stories in this policy area by search query
+        filtered_stories = [
+            s for s in stories 
+            if not search_query or search_query in s.get('title', '').lower() or search_query in s.get('summary', '').lower()
+        ]
+        
+        # Only display the policy area if there are stories matching the search
+        if filtered_stories:
+            with cols[i % 2]:
+                st.markdown(f"### {policy_name}")
+                for story in filtered_stories:
+                    title = story.get('title', 'Headline')
+                    summary = story.get('summary', '').replace('[Source]', '').strip()
+                    badges = render_badges(story)
+                    
+                    card_html = f"""<div class="policy-card">
 <div class="card-title">{title}</div>
 <div class="card-summary">{summary}</div>
 {badges}
 </div>"""
-                st.markdown(card_html, unsafe_allow_html=True)
+                    st.markdown(card_html, unsafe_allow_html=True)
 else:
     st.info("Click the button in the sidebar to fetch today's news.")
