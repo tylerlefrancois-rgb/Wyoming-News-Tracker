@@ -34,9 +34,10 @@ def analyze_policy_news(articles):
     7. Campaign Finance & Election Integrity
     8. Criminal Justice
 
-    Return ONLY a valid JSON object where the keys are the policy areas (only include areas that have relevant articles). 
+    You MUST return a JSON object containing ALL 8 of these exact keys, no matter what. 
     The value for each key should be a list of objects containing 'title', 'summary' (a brief 1-2 sentence explanation of the policy impact), 'link', and 'source'.
-    If no articles fit, return an empty JSON object {}. Do not include any markdown formatting like ```json.
+    If no articles fit a specific category, return an empty list [] for that key. Do not omit any of the 8 keys.
+    Do not include any markdown formatting like ```json.
     """
 
     try:
