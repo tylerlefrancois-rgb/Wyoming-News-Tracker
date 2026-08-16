@@ -1,5 +1,6 @@
-streamlit
-requests
-beautifulsoup4
-google-genai
-python-dotenv
+streamlit>=1.36,<2
+requests>=2.31,<3
+beautifulsoup4>=4.12,<5
+feedparser>=6.0.11,<7
+google-genai>=2.6.0,<3
+python-dotenv>=1.0,<2

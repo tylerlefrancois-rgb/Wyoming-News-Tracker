@@ -1,2 +1,7 @@
 .env
 __pycache__/
+_Backups/
+*_before_*.py
+*.pyc
+.env.*
+start_tracker.bat

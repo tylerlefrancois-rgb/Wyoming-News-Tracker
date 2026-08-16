@@ -1,0 +1,6 @@
+.env
+.env.*
+_Backups/
+__pycache__/
+*.pyc
+ai_processor_before_*.py

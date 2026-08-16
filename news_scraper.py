@@ -1,91 +1,217 @@
-import urllib.request
-import xml.etree.ElementTree as ET
+import calendar
+import html
 import re
+from datetime import datetime, timezone
+from typing import Any
+from urllib.parse import urlparse
 
-# ==============================================================================
-# NEWS SOURCES
-# ==============================================================================
+import feedparser
+from bs4 import BeautifulSoup
+
+
 WYOMING_FEEDS = [
-    # Standard WordPress feed paths
     {"source": "WyoFile", "url": "https://wyofile.com/feed/"},
+    {"source": "Wyoming Public Media", "url": "https://www.wyomingpublicmedia.org/rss.xml"},
+    {"source": "Cowboy State Daily", "url": "https://cowboystatedaily.com/rss.xml"},
+    {"source": "The Wyoming Truth", "url": "https://wyomingtruth.org/feed/"},
+    {
+        "source": "Wyoming Tribune Eagle",
+        "url": "https://www.wyomingnews.com/search/?f=rss&t=article&c=news/local&l=50&s=start_time&sd=desc",
+    },
+    {
+        "source": "Casper Star-Tribune",
+        "url": "https://trib.com/search/?f=rss&t=article&l=50&s=start_time&sd=desc",
+    },
+    {
+        "source": "Jackson Hole News&Guide",
+        "url": "https://www.jhnewsandguide.com/search/?f=rss&t=article&c=news&l=50&s=start_time&sd=desc",
+    },
+    {
+        "source": "Gillette News Record",
+        "url": "https://www.gillettenewsrecord.com/search/?f=rss&t=article&c=news&l=50&s=start_time&sd=desc",
+    },
     {"source": "Oil City News", "url": "https://oilcity.news/feed/"},
     {"source": "Cap City News", "url": "https://capcity.news/feed/"},
-    
-    # REPAIRED: Upgraded to target the raw XML path to bypass 404 errors
-    {"source": "Cowboy State Daily", "url": "https://cowboystatedaily.com/rss.xml"},
-    
-    # Custom query string feed for the Star-Tribune's proprietary system
-    {"source": "Casper Star-Tribune", "url": "https://trib.com/search/?f=rss&t=article&l=50&s=start_time&sd=desc"},
-    
-    # REPAIRED: Wyoming Public Media's core publisher uses the rss.xml path
-    {"source": "Wyoming Public Media", "url": "https://www.wyomingpublicmedia.org/rss.xml"}
+    {"source": "Powell Tribune", "url": "https://www.powelltribune.com/rss"},
+    {"source": "Sheridan Media", "url": "https://sheridanmedia.com/feed/"},
 ]
 
-# ==============================================================================
-# HELPER FUNCTIONS
-# ==============================================================================
-def clean_html(raw_html):
-    """
-    Strips raw HTML tags from RSS summaries so they don't break our Streamlit UI.
-    """
-    cleanr = re.compile('<.*?>')
-    cleantext = re.sub(cleanr, '', raw_html)
-    return cleantext.strip()
+REQUEST_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/150.0.0.0 Safari/537.36"
+    ),
+    "Accept": "application/rss+xml, application/xml, text/xml, */*",
+}
 
-def fetch_wyoming_news():
+
+def clean_html(raw_html: str) -> str:
+    """Convert RSS HTML fragments into compact plain text."""
+    if not raw_html:
+        return ""
+
+    text = BeautifulSoup(raw_html, "html.parser").get_text(" ", strip=True)
+    text = html.unescape(text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _entry_datetime(entry: Any) -> datetime | None:
+    """Return the most reliable timezone-aware publication time available."""
+    parsed = (
+        entry.get("published_parsed")
+        or entry.get("updated_parsed")
+        or entry.get("created_parsed")
+    )
+
+    if parsed:
+        return datetime.fromtimestamp(calendar.timegm(parsed), tz=timezone.utc)
+
+    return None
+
+
+def _entry_summary(entry: Any) -> str:
+    """Prefer the longest useful RSS summary/content field."""
+    candidates: list[str] = []
+
+    for content_item in entry.get("content", []) or []:
+        value = content_item.get("value", "")
+        if value:
+            candidates.append(clean_html(value))
+
+    for key in ("summary", "description", "subtitle"):
+        value = entry.get(key, "")
+        if value:
+            candidates.append(clean_html(value))
+
+    candidates = [item for item in candidates if item]
+    if not candidates:
+        return "No article description was supplied by the RSS feed."
+
+    return max(candidates, key=len)[:1200]
+
+
+def _valid_http_url(value: str) -> bool:
+    try:
+        parsed = urlparse(value)
+        return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+    except Exception:
+        return False
+
+
+def _dedupe_key(source: str, title: str, link: str) -> str:
+    """Remove true duplicates while preserving separate outlets covering one event."""
+    if link:
+        normalized_link = link.split("#", 1)[0].rstrip("/").lower()
+        return f"url:{normalized_link}"
+
+    normalized_title = re.sub(r"[^a-z0-9]+", " ", title.lower()).strip()
+    return f"title:{source.lower()}:{normalized_title}"
+
+
+def fetch_wyoming_news(
+    max_age_hours: int = 120,
+    per_source_limit: int = 20,
+    max_articles: int = 120,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """
-    Fetches, parses, and deduplicates RSS items across all defined feeds.
-    Returns a list of dictionaries containing title, source, summary, and link.
+    Fetch dated Wyoming news from the configured RSS feeds.
+
+    Undated items are intentionally excluded so the app does not label old content
+    as current news. The returned diagnostics make feed failures visible instead of
+    silently hiding them.
     """
-    # Upgraded User-Agent to mimic a real modern browser. 
-    # Many news sites block generic python-urllib headers to prevent scraping.
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36'
+    now = datetime.now(timezone.utc)
+    articles: list[dict[str, Any]] = []
+    seen_items: set[str] = set()
+
+    diagnostics: dict[str, Any] = {
+        "requested_window_hours": max_age_hours,
+        "configured_sources": len(WYOMING_FEEDS),
+        "successful_sources": [],
+        "failed_sources": {},
+        "source_counts": {},
+        "skipped_undated": {},
+        "skipped_outside_window": {},
+        "article_count": 0,
+        "fetched_at": now.isoformat(),
     }
-    
-    articles = []
-    seen_titles = set()
 
-    # Loop through our sources one by one
-    for feed in WYOMING_FEEDS:
+    for feed_info in WYOMING_FEEDS:
+        source = feed_info["source"]
+        url = feed_info["url"]
+
         try:
-            # Build the request with our upgraded browser disguise
-            req = urllib.request.Request(feed["url"], headers=headers)
-            
-            # Open the connection with a 10-second timeout so the app doesn't hang forever
-            with urllib.request.urlopen(req, timeout=10) as response:
-                xml_data = response.read()
-                
-                # Parse the raw XML into a navigable tree
-                root = ET.fromstring(xml_data)
+            feed = feedparser.parse(url, request_headers=REQUEST_HEADERS)
+            entries = list(feed.entries or [])
 
-                # Find all <item> tags (the articles) and grab the top 10 from each source
-                for item in root.findall(".//item")[:10]:
-                    title = item.findtext("title", "No Title").strip()
-                    link = item.findtext("link", "#").strip()
-                    description = item.findtext("description", "")
+            if not entries:
+                message = "Feed returned no entries."
+                if getattr(feed, "bozo", False):
+                    message = str(getattr(feed, "bozo_exception", message))
+                diagnostics["failed_sources"][source] = message
+                diagnostics["source_counts"][source] = 0
+                continue
 
-                    # Normalize the title (lowercase, no extra spaces) to check for duplicates
-                    norm_title = title.lower().strip()
-                    
-                    # If we have already seen this exact headline from another paper, skip it
-                    if norm_title in seen_titles:
-                        continue
-                    
-                    # Add to our tracker so we don't grab it again
-                    seen_titles.add(norm_title)
+            diagnostics["successful_sources"].append(source)
+            diagnostics["skipped_undated"][source] = 0
+            diagnostics["skipped_outside_window"][source] = 0
+            accepted_for_source = 0
 
-                    # Append the cleaned article data to our master list
-                    articles.append({
+            for entry in entries:
+                if accepted_for_source >= per_source_limit:
+                    break
+
+                title = clean_html(entry.get("title", ""))
+                link = (entry.get("link", "") or "").strip()
+                published_at = _entry_datetime(entry)
+
+                if not title or not _valid_http_url(link):
+                    continue
+
+                if published_at is None:
+                    diagnostics["skipped_undated"][source] += 1
+                    continue
+
+                age_hours = (now - published_at).total_seconds() / 3600
+
+                # Allow a small clock-skew tolerance, but reject clearly future items.
+                if age_hours < -6 or age_hours > max_age_hours:
+                    diagnostics["skipped_outside_window"][source] += 1
+                    continue
+
+                key = _dedupe_key(source, title, link)
+                if key in seen_items:
+                    continue
+
+                seen_items.add(key)
+                accepted_for_source += 1
+
+                articles.append(
+                    {
                         "title": title,
-                        "source": feed["source"],
-                        # Clean the HTML and truncate to 250 characters for a clean card layout
-                        "summary": clean_html(description)[:250] + "...",
-                        "link": link
-                    })
-        except Exception as e:
-            # If a site is down or blocks us, print the error to the terminal but keep running the app
-            print(f"Error fetching {feed['source']}: {e}")
-            continue
+                        "source": source,
+                        "summary": _entry_summary(entry),
+                        "link": link,
+                        "published_at": published_at.isoformat(),
+                    }
+                )
 
-    return articles
+            diagnostics["source_counts"][source] = accepted_for_source
+
+        except Exception as exc:
+            diagnostics["failed_sources"][source] = str(exc)
+            diagnostics["source_counts"][source] = 0
+
+    articles.sort(key=lambda item: item["published_at"], reverse=True)
+    articles = articles[:max_articles]
+
+    for index, article in enumerate(articles, start=1):
+        article["article_id"] = f"A{index:04d}"
+
+    diagnostics["article_count"] = len(articles)
+    diagnostics["sources_with_recent_items"] = sum(
+        1 for count in diagnostics["source_counts"].values() if count > 0
+    )
+
+    return articles, diagnostics
