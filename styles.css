@@ -56,6 +56,9 @@ button, a { font: inherit; }
 .read-link { display: inline-flex; align-items: center; gap: 6px; color: var(--navy); text-decoration: none; font-size: .84rem; font-weight: 850; }
 .read-link::after { content: "→"; }
 .read-link:hover { text-decoration: underline; }
+.show-more-row { display: flex; justify-content: center; margin-top: 14px; }
+.show-more-button { min-width: 170px; padding: 10px 18px; color: #fff; border: 1px solid rgba(255,255,255,.28); border-radius: 10px; background: rgba(10,30,49,.88); box-shadow: 0 10px 24px rgba(0,0,0,.18); cursor: pointer; font-weight: 820; transition: transform .15s ease, background .15s ease; }
+.show-more-button:hover { transform: translateY(-1px); background: var(--navy-2); }
 .section-empty { padding: 18px; border-radius: 12px; color: #42505c; background: rgba(255,255,255,.93); box-shadow: 0 10px 26px rgba(0,0,0,.13); }
 .loading-card, .error-card { display: flex; align-items: center; gap: 14px; padding: 20px; margin-bottom: 24px; border-radius: 14px; background: var(--paper); box-shadow: var(--shadow); }
 .loading-card h2, .error-card h2 { margin: 0 0 6px; font-size: 1.25rem; }
