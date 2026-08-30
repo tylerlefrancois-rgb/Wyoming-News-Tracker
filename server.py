@@ -22,6 +22,11 @@ ALLOWED_HOURS = {48, 72, 120, 168}
 
 RSS_APP_FEEDS = [
     {"category": "Wyoming News", "url": "https://rss.app/feeds/tAr4m4B9sT7nmiZh.xml"},
+    {
+        "category": "Organizations",
+        "url": "https://rss.app/feeds/_BkURIckOkKLmty2A.xml",
+        "kind": "organizations",
+    },
     {"category": "Wyoming Legislature", "url": "https://rss.app/feeds/tYUWHgGoOXR67j15.xml"},
     {"category": "Criminal Justice", "url": "https://rss.app/feeds/t9tblFE0r1ld0EIV.xml"},
     {"category": "Campaign Finance & Election Integrity", "url": "https://rss.app/feeds/td9nj0JMyPDL2sHW.xml"},
@@ -31,6 +36,35 @@ RSS_APP_FEEDS = [
     {"category": "Education", "url": "https://rss.app/feeds/tiBDL7jljoFQ7kAa.xml"},
     {"category": "Marijuana / THC", "url": "https://rss.app/feeds/tMNTYA3qajuOJL2b.xml"},
 ]
+
+ORGANIZATION_DOMAINS = {
+    "americansforprosperity.org": "Americans for Prosperity – Wyoming",
+    "betterwyo.org": "Better Wyoming",
+    "mountainstatespolicy.org": "Mountain States Policy Center",
+    "equalitystate.org": "Equality State Policy Center",
+    "wyliberty.org": "Wyoming Liberty Group",
+    "aclu-wy.org": "ACLU of Wyoming",
+    "wyomingfamily.org": "Wyoming Family Alliance",
+    "norml.org": "Wyoming NORML",
+    "wyoenergy.org": "Wyoming Energy Authority",
+    "wyomingbusinessalliance.com": "Wyoming Business Alliance",
+    "wyomingbusiness.org": "Wyoming Business Council",
+    "wyomingcontractors.com": "Wyoming Contractors Association",
+    "wyomingmining.org": "Wyoming Mining Association",
+    "pawyo.org": "Petroleum Association of Wyoming",
+    "wyotax.org": "Wyoming Taxpayers Association",
+    "terrapower.com": "TerraPower",
+    "governor.wyo.gov": "Governor Mark Gordon’s Office",
+    "wynonprofit.org": "Wyoming Nonprofit Network",
+    "wycf.org": "Wyoming Community Foundation",
+    "thinkwy.org": "Wyoming Humanities",
+    "wyomingoutdoorcouncil.org": "Wyoming Outdoor Council",
+    "wywf.org": "Wyoming Women’s Foundation",
+    "wyomingwildlife.org": "Wyoming Wildlife Federation",
+    "wyfft.org": "Wyoming Food for Thought Project",
+    "wyomuni.org": "Wyoming Association of Municipalities",
+    "wyo-wcca.org": "Wyoming County Commissioners Association",
+}
 
 _cache = {}
 _refreshing = set()
@@ -146,6 +180,20 @@ def source_name(node, link):
         return "Source"
 
 
+def organization_name(link):
+    try:
+        host = urlparse(link).netloc.lower().split(":", 1)[0]
+        if host.startswith("www."):
+            host = host[4:]
+    except Exception:
+        return ""
+
+    for domain, name in ORGANIZATION_DOMAINS.items():
+        if host == domain or host.endswith("." + domain):
+            return name
+    return ""
+
+
 def parse_feed(xml_bytes, feed, hours):
     root = ET.fromstring(xml_bytes)
     now = datetime.now(timezone.utc)
@@ -162,6 +210,12 @@ def parse_feed(xml_bytes, feed, hours):
         link = entry_link(node)
         if not title or not link or link in seen_links:
             continue
+
+        organization = ""
+        if feed.get("kind") == "organizations":
+            organization = organization_name(link)
+            if not organization:
+                continue
 
         published_raw = child_text(
             node,
@@ -188,7 +242,7 @@ def parse_feed(xml_bytes, feed, hours):
                 "title": title,
                 "link": link,
                 "summary": summary,
-                "source": source_name(node, link),
+                "source": organization or source_name(node, link),
                 "published_at": published.isoformat() if published else "",
                 "image": entry_image(node),
             }
