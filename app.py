@@ -2,7 +2,6 @@ import os
 import threading
 import time
 from datetime import datetime, timezone
-from typing import Optional
 from zoneinfo import ZoneInfo
 
 from flask import Flask, jsonify, render_template, request, send_from_directory
@@ -10,15 +9,15 @@ from flask import Flask, jsonify, render_template, request, send_from_directory
 app = Flask(__name__)
 
 CATEGORIES = [
-    "State Government, Legislature & Elections",
-    "Taxes, Budget & Economy",
-    "Education",
-    "Energy, Minerals & Utilities",
-    "Public Lands, Water & Agriculture",
+    "Wyoming News",
+    "Wyoming Legislature",
+    "Criminal Justice",
+    "Campaign Finance & Election Integrity",
+    "Government Transparency, Regulation & Legal Reform",
+    "Economics & State Budget",
     "Health Care",
-    "Local Government, Housing & Development",
-    "Courts, Criminal Justice & Civil Liberties",
-    "Transparency, Regulation & Accountability",
+    "Education",
+    "Marijuana / THC",
 ]
 
 WINDOWS = {
@@ -66,8 +65,6 @@ def selected_window():
 
 def _refresh_digest(window_hours):
     try:
-        # Import the feed engine only after the web server is already available.
-        # A broken/slow feed dependency can never prevent /health or / from starting.
         from news_engine import build_digest
 
         digest = build_digest(window_hours)
@@ -87,7 +84,6 @@ def _refresh_digest(window_hours):
 
 
 def ensure_refresh(window_hours, force=False):
-    """Return cached news immediately and refresh stale/missing data in the background."""
     now = time.time()
     start_thread = False
 
