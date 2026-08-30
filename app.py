@@ -2,13 +2,24 @@ import os
 import threading
 import time
 from datetime import datetime, timezone
+from typing import Optional
 from zoneinfo import ZoneInfo
 
 from flask import Flask, jsonify, render_template, request, send_from_directory
 
-from news_engine import CATEGORIES, build_digest
-
 app = Flask(__name__)
+
+CATEGORIES = [
+    "State Government, Legislature & Elections",
+    "Taxes, Budget & Economy",
+    "Education",
+    "Energy, Minerals & Utilities",
+    "Public Lands, Water & Agriculture",
+    "Health Care",
+    "Local Government, Housing & Development",
+    "Courts, Criminal Justice & Civil Liberties",
+    "Transparency, Regulation & Accountability",
+]
 
 WINDOWS = {
     48: "48 hours",
@@ -20,9 +31,9 @@ DEFAULT_WINDOW = 120
 CACHE_SECONDS = max(300, int(os.getenv("NEWS_CACHE_SECONDS", "1800")))
 ASSET_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
 
-_cache: dict[int, dict] = {}
-_refreshing: set[int] = set()
-_refresh_errors: dict[int, str] = {}
+_cache = {}
+_refreshing = set()
+_refresh_errors = {}
 _cache_lock = threading.Lock()
 
 try:
@@ -31,7 +42,7 @@ except Exception:
     MOUNTAIN_TIME = timezone.utc
 
 
-def display_date(value: str) -> str:
+def display_date(value):
     try:
         parsed = datetime.fromisoformat(str(value))
         if parsed.tzinfo is None:
@@ -41,7 +52,7 @@ def display_date(value: str) -> str:
         return "Date unavailable"
 
 
-def parse_window(raw_value: object) -> int:
+def parse_window(raw_value):
     try:
         value = int(raw_value)
     except (TypeError, ValueError):
@@ -49,12 +60,16 @@ def parse_window(raw_value: object) -> int:
     return value if value in WINDOWS else DEFAULT_WINDOW
 
 
-def selected_window() -> int:
+def selected_window():
     return parse_window(request.args.get("window", DEFAULT_WINDOW))
 
 
-def _refresh_digest(window_hours: int) -> None:
+def _refresh_digest(window_hours):
     try:
+        # Import the feed engine only after the web server is already available.
+        # A broken/slow feed dependency can never prevent /health or / from starting.
+        from news_engine import build_digest
+
         digest = build_digest(window_hours)
         digest["cached_at"] = time.time()
         digest["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -71,7 +86,7 @@ def _refresh_digest(window_hours: int) -> None:
             _refreshing.discard(window_hours)
 
 
-def ensure_refresh(window_hours: int, force: bool = False) -> tuple[dict | None, bool, str]:
+def ensure_refresh(window_hours, force=False):
     """Return cached news immediately and refresh stale/missing data in the background."""
     now = time.time()
     start_thread = False
@@ -94,7 +109,7 @@ def ensure_refresh(window_hours: int, force: bool = False) -> tuple[dict | None,
         thread = threading.Thread(
             target=_refresh_digest,
             args=(window_hours,),
-            name=f"news-refresh-{window_hours}",
+            name="news-refresh-{}".format(window_hours),
             daemon=True,
         )
         thread.start()
@@ -108,7 +123,7 @@ def health():
 
 
 @app.get("/assets/<path:filename>")
-def assets(filename: str):
+def assets(filename):
     return send_from_directory(ASSET_DIR, filename)
 
 
@@ -138,7 +153,7 @@ def api_news():
                     "refreshing": False,
                     "window_hours": window_hours,
                     "window_label": WINDOWS[window_hours],
-                    "message": f"News refresh failed: {error_name}",
+                    "message": "News refresh failed: {}".format(error_name),
                 }
             ),
             503,
@@ -162,7 +177,6 @@ def index():
     window_hours = selected_window()
     force = request.args.get("refresh", "").lower() in {"1", "true", "yes"}
 
-    # Trigger collection, but never make the page request wait for external feeds.
     ensure_refresh(window_hours, force=force)
 
     return render_template(
@@ -177,4 +191,4 @@ def index():
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "8080"))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=port, threaded=True, use_reloader=False)
