@@ -21,12 +21,7 @@ DEFAULT_HOURS = 120
 ALLOWED_HOURS = {48, 72, 120, 168}
 
 RSS_APP_FEEDS = [
-    {"category": "Wyoming News", "url": "https://rss.app/feeds/tAr4m4B9sT7nmiZh.xml"},
-    {
-        "category": "Organizations",
-        "url": "https://rss.app/feeds/_BkURIckOkKLmty2A.xml",
-        "kind": "organizations",
-    },
+    {"category": "Organizations", "url": "https://rss.app/feeds/imDlfnj3C7bxj1bO.xml"},
     {"category": "Wyoming Legislature", "url": "https://rss.app/feeds/tYUWHgGoOXR67j15.xml"},
     {"category": "Criminal Justice", "url": "https://rss.app/feeds/t9tblFE0r1ld0EIV.xml"},
     {"category": "Campaign Finance & Election Integrity", "url": "https://rss.app/feeds/td9nj0JMyPDL2sHW.xml"},
@@ -36,35 +31,6 @@ RSS_APP_FEEDS = [
     {"category": "Education", "url": "https://rss.app/feeds/tiBDL7jljoFQ7kAa.xml"},
     {"category": "Marijuana / THC", "url": "https://rss.app/feeds/tMNTYA3qajuOJL2b.xml"},
 ]
-
-ORGANIZATION_DOMAINS = {
-    "americansforprosperity.org": "Americans for Prosperity – Wyoming",
-    "betterwyo.org": "Better Wyoming",
-    "mountainstatespolicy.org": "Mountain States Policy Center",
-    "equalitystate.org": "Equality State Policy Center",
-    "wyliberty.org": "Wyoming Liberty Group",
-    "aclu-wy.org": "ACLU of Wyoming",
-    "wyomingfamily.org": "Wyoming Family Alliance",
-    "norml.org": "Wyoming NORML",
-    "wyoenergy.org": "Wyoming Energy Authority",
-    "wyomingbusinessalliance.com": "Wyoming Business Alliance",
-    "wyomingbusiness.org": "Wyoming Business Council",
-    "wyomingcontractors.com": "Wyoming Contractors Association",
-    "wyomingmining.org": "Wyoming Mining Association",
-    "pawyo.org": "Petroleum Association of Wyoming",
-    "wyotax.org": "Wyoming Taxpayers Association",
-    "terrapower.com": "TerraPower",
-    "governor.wyo.gov": "Governor Mark Gordon’s Office",
-    "wynonprofit.org": "Wyoming Nonprofit Network",
-    "wycf.org": "Wyoming Community Foundation",
-    "thinkwy.org": "Wyoming Humanities",
-    "wyomingoutdoorcouncil.org": "Wyoming Outdoor Council",
-    "wywf.org": "Wyoming Women’s Foundation",
-    "wyomingwildlife.org": "Wyoming Wildlife Federation",
-    "wyfft.org": "Wyoming Food for Thought Project",
-    "wyomuni.org": "Wyoming Association of Municipalities",
-    "wyo-wcca.org": "Wyoming County Commissioners Association",
-}
 
 _cache = {}
 _refreshing = set()
@@ -117,6 +83,7 @@ def entry_link(node):
         text = clean_text(child.text)
         if text.startswith(("http://", "https://")):
             return text
+
     guid = child_text(node, {"guid", "id"})
     if guid.startswith(("http://", "https://")):
         return guid
@@ -180,42 +147,19 @@ def source_name(node, link):
         return "Source"
 
 
-def organization_name(link):
-    try:
-        host = urlparse(link).netloc.lower().split(":", 1)[0]
-        if host.startswith("www."):
-            host = host[4:]
-    except Exception:
-        return ""
-
-    for domain, name in ORGANIZATION_DOMAINS.items():
-        if host == domain or host.endswith("." + domain):
-            return name
-    return ""
-
-
-def parse_feed(xml_bytes, feed, hours):
+def parse_feed(xml_bytes, hours):
     root = ET.fromstring(xml_bytes)
     now = datetime.now(timezone.utc)
-    entries = [
-        node for node in root.iter()
-        if local_name(node.tag) in {"item", "entry"}
-    ]
+    entries = [node for node in root.iter() if local_name(node.tag) in {"item", "entry"}]
 
     items = []
     seen_links = set()
 
-    for node in entries[:80]:
+    for node in entries[:100]:
         title = child_text(node, {"title"})
         link = entry_link(node)
         if not title or not link or link in seen_links:
             continue
-
-        organization = ""
-        if feed.get("kind") == "organizations":
-            organization = organization_name(link)
-            if not organization:
-                continue
 
         published_raw = child_text(
             node,
@@ -242,7 +186,7 @@ def parse_feed(xml_bytes, feed, hours):
                 "title": title,
                 "link": link,
                 "summary": summary,
-                "source": organization or source_name(node, link),
+                "source": source_name(node, link),
                 "published_at": published.isoformat() if published else "",
                 "image": entry_image(node),
             }
@@ -255,7 +199,7 @@ def fetch_feed(feed, hours):
     req = Request(
         feed["url"],
         headers={
-            "User-Agent": "Mozilla/5.0 WyomingPolicyNewsTracker/4.0",
+            "User-Agent": "Mozilla/5.0 WyomingPolicyNewsTracker/5.0",
             "Accept": "application/rss+xml, application/xml, text/xml, */*",
         },
     )
@@ -265,7 +209,7 @@ def fetch_feed(feed, hours):
         return {
             "category": feed["category"],
             "status": "ok",
-            "items": parse_feed(data, feed, hours),
+            "items": parse_feed(data, hours),
             "error": "",
         }
     except Exception as exc:
@@ -280,10 +224,7 @@ def fetch_feed(feed, hours):
 def build_digest(hours):
     results = {}
     with ThreadPoolExecutor(max_workers=len(RSS_APP_FEEDS)) as pool:
-        future_map = {
-            pool.submit(fetch_feed, feed, hours): feed
-            for feed in RSS_APP_FEEDS
-        }
+        future_map = {pool.submit(fetch_feed, feed, hours): feed for feed in RSS_APP_FEEDS}
         for future in as_completed(future_map):
             result = future.result()
             results[result["category"]] = result
@@ -340,10 +281,7 @@ def _refresh(hours):
     try:
         digest = build_digest(hours)
         with _lock:
-            _cache[hours] = {
-                "data": digest,
-                "cached_at": time.time(),
-            }
+            _cache[hours] = {"data": digest, "cached_at": time.time()}
             _errors.pop(hours, None)
     except Exception as exc:
         with _lock:
@@ -359,10 +297,7 @@ def ensure_refresh(hours, force=False):
 
     with _lock:
         cached = _cache.get(hours)
-        fresh = (
-            cached is not None
-            and now - cached.get("cached_at", 0) < CACHE_SECONDS
-        )
+        fresh = cached is not None and now - cached.get("cached_at", 0) < CACHE_SECONDS
         if (force or not fresh) and hours not in _refreshing:
             _refreshing.add(hours)
             _errors.pop(hours, None)
@@ -386,7 +321,7 @@ def json_bytes(payload):
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "WyomingPolicyNews/4.0"
+    server_version = "WyomingPolicyNews/5.0"
 
     def log_message(self, fmt, *args):
         print(
@@ -421,7 +356,7 @@ class Handler(BaseHTTPRequestHandler):
         except FileNotFoundError:
             self.send_error(404)
             return
-        self.send_bytes(status=200, body=body, content_type=content_type, cache_control=cache_control)
+        self.send_bytes(200, body, content_type, cache_control)
 
     def do_GET(self):
         parsed = urlparse(self.path)
@@ -447,42 +382,23 @@ class Handler(BaseHTTPRequestHandler):
             if hours not in ALLOWED_HOURS:
                 hours = DEFAULT_HOURS
 
-            force = query.get("refresh", ["0"])[0].lower() in {
-                "1",
-                "true",
-                "yes",
-            }
+            force = query.get("refresh", ["0"])[0].lower() in {"1", "true", "yes"}
             cached, refreshing, error = ensure_refresh(hours, force=force)
 
             if cached:
                 payload = dict(cached["data"])
-                payload.update(
-                    {
-                        "status": "ready",
-                        "refreshing": refreshing,
-                    }
-                )
+                payload.update({"status": "ready", "refreshing": refreshing})
                 self.send_json(200, payload)
                 return
 
             if error and not refreshing:
                 self.send_json(
                     503,
-                    {
-                        "status": "error",
-                        "refreshing": False,
-                        "error": error,
-                    },
+                    {"status": "error", "refreshing": False, "error": error},
                 )
                 return
 
-            self.send_json(
-                202,
-                {
-                    "status": "loading",
-                    "refreshing": True,
-                },
-            )
+            self.send_json(202, {"status": "loading", "refreshing": True})
             return
 
         if path in {"/", "/index.html"}:
