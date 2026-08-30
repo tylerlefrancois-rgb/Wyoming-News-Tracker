@@ -28,72 +28,25 @@
       <a class="refresh-button" href="/?window={{ window_hours }}&refresh=1">Refresh news</a>
     </section>
 
-    {% if error %}
-      <div class="notice error">{{ error }}</div>
-    {% endif %}
-
     <section class="status-grid" aria-label="Tracker status">
-      <div class="status-card"><strong>{{ metadata.get('story_count', 0) }}</strong><span>policy stories</span></div>
-      <div class="status-card"><strong>{{ metadata.get('outlet_count', 0) }}</strong><span>reporting outlets</span></div>
-      <div class="status-card"><strong>{{ metadata.get('multi_source_count', 0) }}</strong><span>multi-source stories</span></div>
-      <div class="status-card"><strong>{{ metadata.get('failed_sources', 0) }}</strong><span>feed failures</span></div>
+      <div class="status-card"><strong id="story-count">—</strong><span>policy stories</span></div>
+      <div class="status-card"><strong id="outlet-count">—</strong><span>reporting outlets</span></div>
+      <div class="status-card"><strong id="multi-source-count">—</strong><span>multi-source stories</span></div>
+      <div class="status-card"><strong id="failed-source-count">—</strong><span>feed failures</span></div>
     </section>
 
-    <div class="updated-line">Showing the last {{ window_label }} · Updated {{ updated_label }}</div>
+    <div class="updated-line" id="updated-line">Showing the last {{ window_label }} · Collecting current Wyoming coverage…</div>
 
-    {% if active_categories %}
-      {% for category in active_categories %}
-        <section class="category-section">
-          <div class="category-heading">
-            <h2>{{ category }}</h2>
-            <span>{{ categories.get(category, [])|length }} {{ 'story' if categories.get(category, [])|length == 1 else 'stories' }}</span>
-          </div>
-
-          <div class="story-grid">
-            {% for story in categories.get(category, []) %}
-              <article class="story-card">
-                <div class="story-topline">
-                  <span>{{ display_date(story.get('published_at', '')) }}</span>
-                  {% if story.get('source_count', 0) > 1 %}
-                    <span class="multi-source">{{ story.get('source_count') }} outlets</span>
-                  {% endif %}
-                </div>
-
-                <h3>{{ story.get('title', 'Wyoming policy update') }}</h3>
-                <p class="summary">{{ story.get('summary', '') }}</p>
-
-                <div class="source-block">
-                  <div class="source-label">Coverage</div>
-                  <div class="source-links">
-                    {% for source in story.get('sources', []) %}
-                      <a href="{{ source.get('url') }}" target="_blank" rel="noopener noreferrer">{{ source.get('name', 'Source') }}</a>
-                    {% endfor %}
-                  </div>
-                </div>
-              </article>
-            {% endfor %}
-          </div>
-        </section>
-      {% endfor %}
-    {% else %}
+    <div id="news-root" aria-live="polite">
       <section class="empty-state">
-        <h2>No policy stories were returned.</h2>
-        <p>The application is online, but the current feeds did not produce qualifying Wyoming policy coverage for this time window. Try seven days or refresh the feeds.</p>
+        <h2>Loading Wyoming policy news…</h2>
+        <p>The page is ready. News feeds are being collected in the background.</p>
       </section>
-    {% endif %}
+    </div>
 
-    <details class="diagnostics">
+    <details class="diagnostics" id="diagnostics-panel" hidden>
       <summary>Feed status</summary>
-      <div class="diagnostic-grid">
-        {% for source, diag in diagnostics.items() %}
-          <div class="diagnostic-row">
-            <strong>{{ source }}</strong>
-            <span class="{% if diag.get('status') == 'ok' %}ok{% else %}failed{% endif %}">
-              {% if diag.get('status') == 'ok' %}{{ diag.get('accepted', 0) }} recent items{% else %}failed{% endif %}
-            </span>
-          </div>
-        {% endfor %}
-      </div>
+      <div class="diagnostic-grid" id="diagnostic-grid"></div>
     </details>
 
     <footer>
@@ -101,5 +54,182 @@
       <a href="https://wylibertyresearch.org" target="_blank" rel="noopener noreferrer">Wyoming Liberty Research</a>
     </footer>
   </main>
+
+  <script>
+    const categoryOrder = {{ categories | tojson }};
+    const windowHours = {{ window_hours }};
+    const windowLabel = {{ window_label | tojson }};
+    const newsRoot = document.getElementById("news-root");
+    const updatedLine = document.getElementById("updated-line");
+
+    function element(tag, className, text) {
+      const node = document.createElement(tag);
+      if (className) node.className = className;
+      if (text !== undefined && text !== null) node.textContent = String(text);
+      return node;
+    }
+
+    function formatDate(value) {
+      if (!value) return "Date unavailable";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return "Date unavailable";
+      return new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/Denver",
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        hour: "numeric",
+        minute: "2-digit"
+      }).format(date) + " MT";
+    }
+
+    function setMetric(id, value) {
+      document.getElementById(id).textContent = value ?? 0;
+    }
+
+    function renderStory(story) {
+      const article = element("article", "story-card");
+      const topline = element("div", "story-topline");
+      topline.appendChild(element("span", "", formatDate(story.published_at)));
+
+      if ((story.source_count || 0) > 1) {
+        topline.appendChild(element("span", "multi-source", `${story.source_count} outlets`));
+      }
+
+      article.appendChild(topline);
+      article.appendChild(element("h3", "", story.title || "Wyoming policy update"));
+      article.appendChild(element("p", "summary", story.summary || "Open the linked coverage for full details."));
+
+      const sourceBlock = element("div", "source-block");
+      sourceBlock.appendChild(element("div", "source-label", "Coverage"));
+      const sourceLinks = element("div", "source-links");
+
+      for (const source of (story.sources || [])) {
+        const link = element("a", "", source.name || "Source");
+        link.href = source.url || "#";
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        sourceLinks.appendChild(link);
+      }
+
+      sourceBlock.appendChild(sourceLinks);
+      article.appendChild(sourceBlock);
+      return article;
+    }
+
+    function renderDigest(payload) {
+      const digest = payload.digest || {};
+      const metadata = digest.metadata || {};
+      const categories = digest.categories || {};
+
+      setMetric("story-count", metadata.story_count || 0);
+      setMetric("outlet-count", metadata.outlet_count || 0);
+      setMetric("multi-source-count", metadata.multi_source_count || 0);
+      setMetric("failed-source-count", metadata.failed_sources || 0);
+
+      updatedLine.textContent = `Showing the last ${payload.window_label || windowLabel} · Updated ${payload.updated_label || "just now"}${payload.refreshing ? " · Refreshing in background" : ""}`;
+      newsRoot.replaceChildren();
+
+      let renderedStories = 0;
+      for (const category of categoryOrder) {
+        const stories = categories[category] || [];
+        if (!stories.length) continue;
+
+        renderedStories += stories.length;
+        const section = element("section", "category-section");
+        const heading = element("div", "category-heading");
+        heading.appendChild(element("h2", "", category));
+        heading.appendChild(element("span", "", `${stories.length} ${stories.length === 1 ? "story" : "stories"}`));
+        section.appendChild(heading);
+
+        const grid = element("div", "story-grid");
+        for (const story of stories) grid.appendChild(renderStory(story));
+        section.appendChild(grid);
+        newsRoot.appendChild(section);
+      }
+
+      if (!renderedStories) {
+        const empty = element("section", "empty-state");
+        empty.appendChild(element("h2", "", "No qualifying policy stories were returned."));
+        empty.appendChild(element("p", "", "Try a seven-day window or refresh the feeds. The tracker excludes routine sports, weather, obituaries, opinion pieces, and other non-policy material."));
+        newsRoot.appendChild(empty);
+      }
+
+      renderDiagnostics(digest.diagnostics || {});
+    }
+
+    function renderDiagnostics(diagnostics) {
+      const panel = document.getElementById("diagnostics-panel");
+      const grid = document.getElementById("diagnostic-grid");
+      grid.replaceChildren();
+
+      const entries = Object.entries(diagnostics);
+      if (!entries.length) {
+        panel.hidden = true;
+        return;
+      }
+
+      for (const [source, diag] of entries) {
+        const row = element("div", "diagnostic-row");
+        row.appendChild(element("strong", "", source));
+        const ok = diag.status === "ok";
+        row.appendChild(element("span", ok ? "ok" : "failed", ok ? `${diag.accepted || 0} recent items` : "failed"));
+        grid.appendChild(row);
+      }
+      panel.hidden = false;
+    }
+
+    function showLoading() {
+      newsRoot.replaceChildren();
+      const loading = element("section", "empty-state");
+      loading.appendChild(element("h2", "", "Loading Wyoming policy news…"));
+      loading.appendChild(element("p", "", "The page is online. Current coverage is being collected in the background."));
+      newsRoot.appendChild(loading);
+    }
+
+    function showError(message) {
+      newsRoot.replaceChildren();
+      const error = element("section", "empty-state");
+      error.appendChild(element("h2", "", "The page is online, but the news refresh failed."));
+      error.appendChild(element("p", "", message || "Try Refresh news again in a moment."));
+      newsRoot.appendChild(error);
+      updatedLine.textContent = `Showing the last ${windowLabel} · Feed refresh unavailable`;
+    }
+
+    async function loadNews(attempt = 0) {
+      try {
+        const response = await fetch(`/api/news?window=${windowHours}`, { cache: "no-store" });
+        const payload = await response.json();
+
+        if (payload.status === "loading") {
+          showLoading();
+          if (attempt < 60) {
+            window.setTimeout(() => loadNews(attempt + 1), 1500);
+          } else {
+            showError("The feeds are taking longer than expected. Use Refresh news to try again.");
+          }
+          return;
+        }
+
+        if (payload.status === "error") {
+          showError(payload.message);
+          return;
+        }
+
+        renderDigest(payload);
+        if (payload.refreshing && attempt < 60) {
+          window.setTimeout(() => loadNews(attempt + 1), 2500);
+        }
+      } catch (error) {
+        if (attempt < 8) {
+          window.setTimeout(() => loadNews(attempt + 1), 1500);
+        } else {
+          showError("The application could not load the news API. Try Refresh news again.");
+        }
+      }
+    }
+
+    loadNews();
+  </script>
 </body>
 </html>
