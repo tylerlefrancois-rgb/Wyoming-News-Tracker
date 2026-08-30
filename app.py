@@ -4,7 +4,7 @@ import time
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-from flask import Flask, render_template, request
+from flask import Flask, render_template, request, send_from_directory
 
 from news_engine import CATEGORIES, build_digest
 
@@ -18,6 +18,7 @@ WINDOWS = {
 }
 DEFAULT_WINDOW = 120
 CACHE_SECONDS = max(300, int(os.getenv("NEWS_CACHE_SECONDS", "1800")))
+ASSET_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
 
 _cache: dict[int, dict] = {}
 _cache_lock = threading.Lock()
@@ -65,6 +66,11 @@ def get_digest(window_hours: int, force: bool = False) -> dict:
 @app.get("/health")
 def health():
     return {"status": "ok", "app": "wyoming-policy-news-tracker"}, 200
+
+
+@app.get("/assets/<path:filename>")
+def assets(filename: str):
+    return send_from_directory(ASSET_DIR, filename)
 
 
 @app.get("/")
