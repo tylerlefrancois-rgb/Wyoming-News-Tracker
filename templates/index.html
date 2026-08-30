@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Wyoming Policy News Tracker</title>
+    <link rel="stylesheet" href="/static/styles.css">
+
+</head>
+<body>
+    <header class="masthead">
+        <div class="shell masthead-grid">
+            <div>
+                <p class="eyebrow">Wyoming Policy Monitor</p>
+                <h1>Wyoming Policy News Tracker</h1>
+                <p class="subhead">
+                    Current Wyoming policy coverage grouped by subject. Repeated coverage of the
+                    same development is combined into one card, with each reporting outlet linked below it.
+                </p>
+            </div>
+            <div class="updated">
+                <strong>Last update</strong>
+                {{ updated_label }}<br>
+                Showing the last {{ window_label }}.
+            </div>
+        </div>
+    </header>
+
+    <main class="shell">
+        <div class="controls">
+            <div class="window-links" aria-label="News timeframe">
+                {% for hours, label in windows.items() %}
+                    <a class="pill {% if hours == window_hours %}active{% endif %}" href="/?window={{ hours }}">{{ label }}</a>
+                {% endfor %}
+                <a class="pill refresh" href="/?window={{ window_hours }}&refresh=1">Refresh sources</a>
+            </div>
+            <div class="resource-links">
+                <a class="pill" href="https://wylib-wyocal-production.up.railway.app/" target="_blank" rel="noopener">Legislative Calendar</a>
+                <a class="pill" href="https://wylibertyresearch.org/" target="_blank" rel="noopener">Wyoming Liberty Research</a>
+            </div>
+        </div>
+
+        {% if error_message %}
+            <div class="notice">{{ error_message }}</div>
+        {% endif %}
+
+        {% if metadata %}
+        <div class="status-grid">
+            <div class="stat"><div class="stat-value">{{ metadata.get('policy_story_count', 0) }}</div><div class="stat-label">Policy developments</div></div>
+            <div class="stat"><div class="stat-value">{{ metadata.get('multi_source_story_count', 0) }}</div><div class="stat-label">Covered by multiple outlets</div></div>
+            <div class="stat"><div class="stat-value">{{ metadata.get('duplicate_articles_grouped', 0) }}</div><div class="stat-label">Repeat articles combined</div></div>
+            <div class="stat"><div class="stat-value">{{ diagnostics.get('sources_with_recent_items', 0) }}</div><div class="stat-label">News sources reporting</div></div>
+        </div>
+        {% endif %}
+
+        {% if active_categories %}
+        <nav class="jumpbar" aria-label="Jump to category">
+            <div class="jump-links">
+                <span class="jump-label">Jump to</span>
+                {% for category in active_categories %}
+                    <a href="#category-{{ loop.index }}">{{ category }}</a>{% if not loop.last %}<span aria-hidden="true">·</span>{% endif %}
+                {% endfor %}
+            </div>
+        </nav>
+        {% endif %}
+
+        {% for category in all_categories %}
+            {% set stories = categories.get(category, []) %}
+            {% if stories %}
+            <section class="category" id="category-{{ active_categories.index(category) + 1 }}">
+                <div class="category-head">
+                    <h2>{{ category }}</h2>
+                    <div class="category-count">{{ stories|length }} {{ 'story' if stories|length == 1 else 'stories' }}</div>
+                </div>
+                <div class="cards">
+                    {% for story in stories %}
+                    <article class="card">
+                        <div class="card-body">
+                            <h3>{{ story.get('title', 'Wyoming policy update') }}</h3>
+                            <p class="meta">Latest coverage: {{ display_datetime(story.get('published_at', '')) }}</p>
+                            <p class="summary">{{ story.get('summary', '') }}</p>
+                        </div>
+                        <div class="coverage">
+                            <p class="coverage-label">Reporting sources{% if story.get('source_count', 0) > 1 %} · combined coverage{% endif %}</p>
+                            <div class="source-row">
+                                {% for source in story.get('sources', []) %}
+                                    <a class="source-link" href="{{ source.get('url', '#') }}" target="_blank" rel="noopener noreferrer">{{ source.get('name', 'Source') }}</a>
+                                {% endfor %}
+                                {% if story.get('source_count', 0) > 1 %}
+                                    <span class="multi-source">{{ story.get('source_count') }} outlets</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </article>
+                    {% endfor %}
+                </div>
+            </section>
+            {% endif %}
+        {% endfor %}
+
+        {% if not active_categories and not error_message %}
+            <div class="empty">No qualifying Wyoming policy stories were found in this time window.</div>
+        {% endif %}
+
+        {% if diagnostics %}
+        <details class="diagnostics">
+            <summary>Source check details</summary>
+            <div class="diagnostic-grid">
+                <div>Articles collected: <strong>{{ diagnostics.get('article_count', 0) }}</strong></div>
+                <div>Configured sources: <strong>{{ diagnostics.get('configured_sources', 0) }}</strong></div>
+                <div>Sources with current items: <strong>{{ diagnostics.get('sources_with_recent_items', 0) }}</strong></div>
+                <div>Processing mode: <strong>Source-faithful local rules</strong></div>
+            </div>
+            {% if diagnostics.get('failed_sources') %}
+                <p><strong>Feeds with a problem this cycle:</strong> {{ diagnostics.get('failed_sources').keys()|join(', ') }}</p>
+            {% endif %}
+        </details>
+        {% endif %}
+    </main>
+
+    <footer>
+        <div class="shell">
+            Source links open the original reporting. The tracker combines repeat coverage but does not replace the source material.
+        </div>
+    </footer>
+</body>
+</html>

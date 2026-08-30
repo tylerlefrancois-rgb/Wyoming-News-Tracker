@@ -1,0 +1,62 @@
+:root {
+--ink: #111827;
+--muted: #5b6472;
+--line: #d7dde5;
+--paper: rgba(255, 255, 255, 0.97);
+--paper-soft: rgba(248, 250, 252, 0.97);
+--navy: #17324d;
+--navy-dark: #0b2238;
+--link: #174f86;
+--shadow: 0 10px 28px rgba(15, 23, 42, 0.15);
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; color: var(--ink); font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; background: linear-gradient(rgba(9,23,37,.74),rgba(9,23,37,.87)), url('/assets/wyoming_landscape.jpg') center / cover fixed; }
+a { color: var(--link); }
+.shell { width: min(1380px, calc(100% - 34px)); margin: 0 auto; }
+.masthead { padding: 44px 0 24px; color: white; }
+.masthead-grid { display: flex; align-items: flex-end; justify-content: space-between; gap: 28px; }
+.eyebrow { margin: 0 0 8px; font-size: .84rem; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: #d8e6f2; }
+h1 { margin: 0; font-size: clamp(2rem, 4vw, 3.45rem); line-height: 1.05; letter-spacing: -.035em; }
+.subhead { margin: 12px 0 0; max-width: 850px; color: #edf3f8; font-size: 1.06rem; line-height: 1.55; }
+.updated { min-width: 260px; padding: 14px 16px; border: 1px solid rgba(255,255,255,.24); border-radius: 12px; background: rgba(8,28,45,.68); font-size: .9rem; line-height: 1.45; }
+.updated strong { display: block; color: white; margin-bottom: 3px; }
+.controls { margin: 0 0 24px; padding: 14px; display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; background: var(--paper); border: 1px solid rgba(255,255,255,.7); border-radius: 14px; box-shadow: var(--shadow); }
+.window-links,.resource-links,.jump-links { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.pill { display: inline-flex; align-items: center; min-height: 40px; padding: 8px 12px; border: 1px solid #c9d1da; border-radius: 999px; background: white; color: #27384a; text-decoration: none; font-size: .92rem; font-weight: 750; }
+.pill:hover { border-color: #8595a6; background: #f7f9fb; }
+.pill.active { background: var(--navy); color: white; border-color: var(--navy); }
+.pill.refresh { border-color: #b98a43; color: #6e4811; }
+.status-grid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 12px; margin-bottom: 18px; }
+.stat { background: var(--paper); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); padding: 16px; }
+.stat-value { font-size: 1.55rem; font-weight: 850; color: var(--navy-dark); }
+.stat-label { margin-top: 4px; font-size: .82rem; font-weight: 700; color: var(--muted); }
+.notice { margin-bottom: 18px; padding: 14px 16px; border-radius: 12px; background: #fff7ed; border: 1px solid #fed7aa; color: #7c2d12; font-weight: 650; line-height: 1.5; }
+.jumpbar { margin-bottom: 24px; padding: 14px 16px; background: rgba(247,250,252,.98); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); }
+.jump-label { margin-right: 5px; color: var(--muted); font-size: .8rem; font-weight: 850; text-transform: uppercase; letter-spacing: .08em; }
+.jump-links a { color: #334155; font-size: .9rem; font-weight: 700; text-decoration: none; }
+.jump-links a:hover { text-decoration: underline; }
+.category { scroll-margin-top: 16px; margin: 0 0 34px; }
+.category-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin: 0 0 12px; padding: 0 2px; color: white; }
+.category-head h2 { margin: 0; font-size: clamp(1.45rem,2.2vw,2rem); letter-spacing: -.015em; }
+.category-count { color: #d9e4ed; font-size: .9rem; font-weight: 750; white-space: nowrap; }
+.cards { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; }
+.card { display: flex; flex-direction: column; min-height: 285px; background: var(--paper); border: 1px solid var(--line); border-top: 4px solid var(--navy); border-radius: 13px; box-shadow: var(--shadow); overflow: hidden; }
+.card-body { padding: 20px 21px 14px; flex: 1; }
+.card h3 { margin: 0 0 9px; color: #0f172a; font-size: 1.2rem; line-height: 1.35; letter-spacing: -.012em; }
+.meta { margin: 0 0 13px; color: var(--muted); font-size: .84rem; font-weight: 700; }
+.summary { margin: 0; color: #293443; font-size: 1rem; line-height: 1.62; }
+.coverage { padding: 12px 14px 14px; border-top: 1px solid #e4e8ed; background: var(--paper-soft); }
+.coverage-label { margin: 0 0 8px; color: #6b7280; font-size: .75rem; font-weight: 850; letter-spacing: .08em; text-transform: uppercase; }
+.source-row { display: flex; flex-wrap: wrap; gap: 7px; }
+.source-link { display: inline-flex; align-items: center; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 7px; background: white; color: #194f80; text-decoration: none; font-size: .82rem; font-weight: 800; }
+.source-link:hover { border-color: #7c91a6; background: #f8fafc; }
+.multi-source { margin-left: auto; color: #476173; font-size: .76rem; font-weight: 750; }
+.empty { padding: 18px; background: rgba(248,250,252,.95); border: 1px dashed #bdc7d2; border-radius: 12px; color: #556273; }
+details.diagnostics { margin: 0 0 28px; background: rgba(248,250,252,.97); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; color: #4b5563; font-size: .88rem; }
+details.diagnostics summary { cursor: pointer; font-weight: 800; color: #334155; }
+.diagnostic-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px 20px; margin-top: 12px; }
+footer { padding: 6px 0 38px; color: #d7e1ea; font-size: .86rem; }
+footer a { color: white; font-weight: 750; }
+@media (max-width:900px) { .masthead-grid { align-items:flex-start; flex-direction:column; } .updated { min-width:0; width:100%; } .status-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .cards { grid-template-columns:1fr; } }
+@media (max-width:560px) { .shell { width:min(100% - 20px,1380px); } .masthead { padding-top:26px; } .status-grid { grid-template-columns:1fr 1fr; } .controls { align-items:stretch; } .window-links,.resource-links { width:100%; } .pill { justify-content:center; flex:1; } .category-head { align-items:flex-start; flex-direction:column; gap:4px; } .card-body { padding:17px; } }
