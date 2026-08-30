@@ -17,6 +17,8 @@ from urllib.request import Request, urlopen
 ROOT = Path(__file__).resolve().parent
 PORT = int(os.environ.get("PORT", "8080"))
 CACHE_SECONDS = max(120, int(os.environ.get("NEWS_CACHE_SECONDS", "900")))
+MAX_AGE_DAYS = 14
+MAX_AGE_HOURS = MAX_AGE_DAYS * 24
 
 RSS_APP_FEEDS = [
     {"category": "Organizations", "url": "https://rss.app/feeds/imDlfnj3C7bxj1bO.xml"},
@@ -149,6 +151,7 @@ def source_name(node, link):
 def parse_feed(xml_bytes):
     root = ET.fromstring(xml_bytes)
     entries = [node for node in root.iter() if local_name(node.tag) in {"item", "entry"}]
+    now = datetime.now(timezone.utc)
 
     items = []
     seen_links = set()
@@ -164,6 +167,14 @@ def parse_feed(xml_bytes):
             {"pubdate", "published", "updated", "date", "created"},
         )
         published = parse_date(published_raw)
+
+        # This is a current-news tracker. Do not surface undated items or stories
+        # older than the rolling freshness window, even if RSS.app still retains them.
+        if published is None:
+            continue
+        age_hours = (now - published).total_seconds() / 3600
+        if age_hours < -6 or age_hours > MAX_AGE_HOURS:
+            continue
 
         summary = child_text(
             node,
@@ -181,9 +192,9 @@ def parse_feed(xml_bytes):
                 "link": link,
                 "summary": summary,
                 "source": source_name(node, link),
-                "published_at": published.isoformat() if published else "",
+                "published_at": published.isoformat(),
                 "image": entry_image(node),
-                "_sort": published.timestamp() if published else 0,
+                "_sort": published.timestamp(),
             }
         )
 
@@ -197,7 +208,7 @@ def fetch_feed(feed):
     req = Request(
         feed["url"],
         headers={
-            "User-Agent": "Mozilla/5.0 WyomingPolicyNewsTracker/6.0",
+            "User-Agent": "Mozilla/5.0 WyomingPolicyNewsTracker/6.1",
             "Accept": "application/rss+xml, application/xml, text/xml, */*",
             "Cache-Control": "no-cache",
         },
@@ -252,8 +263,8 @@ def build_digest():
             failed_feeds += 1
 
         # Do not dedupe across categories. If RSS.app puts the same article in two
-        # policy feeds, it belongs in both sections. parse_feed already removes
-        # exact duplicate links inside an individual feed.
+        # policy feeds, it belongs in both sections. parse_feed removes exact
+        # duplicate links only inside an individual feed.
         items = list(result.get("items", []))
         for item in items:
             source_names.add(item.get("source", "Source"))
@@ -271,6 +282,7 @@ def build_digest():
 
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        "window_days": MAX_AGE_DAYS,
         "sections": sections,
         "metrics": {
             "items": total_items,
@@ -325,7 +337,7 @@ def json_bytes(payload):
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "WyomingPolicyNews/6.0"
+    server_version = "WyomingPolicyNews/6.1"
 
     def log_message(self, fmt, *args):
         print(
