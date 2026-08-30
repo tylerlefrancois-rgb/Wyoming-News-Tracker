@@ -128,7 +128,7 @@ function renderDigest(payload) {
   const sections = payload.sections || [];
   setMetric("item-count", metrics.items || 0);
   setMetric("source-count", metrics.sources || 0);
-  setMetric("feed-count", metrics.feeds || 9);
+  setMetric("feed-count", metrics.feeds || 10);
   setMetric("failed-count", metrics.failed_feeds || 0);
 
   updatedLine.textContent = `Showing the last ${labels[currentHours]} · Updated ${formatDate(payload.generated_at)}` + (payload.refreshing ? " · refreshing" : "");
@@ -147,7 +147,7 @@ function renderDigest(payload) {
       wrap.appendChild(grid);
     } else {
       const message = section.status === "ok"
-        ? `No RSS.app items were returned in the last ${labels[currentHours]}.`
+        ? `No matching items were returned in the last ${labels[currentHours]}.`
         : "This RSS.app feed is temporarily unavailable.";
       wrap.appendChild(el("div", "section-empty", message));
     }
@@ -214,7 +214,7 @@ for (const button of windowButtons) {
 
 refreshButton.addEventListener("click", () => {
   updatedLine.textContent = `Refreshing the last ${labels[currentHours]} from RSS.app…`;
-  showLoading("A fresh copy of all nine RSS.app feeds is being collected.");
+  showLoading("A fresh copy of all ten RSS.app feeds is being collected.");
   loadNews({ force: true });
 });
 
