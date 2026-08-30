@@ -172,13 +172,14 @@ function renderSectionCards(wrap, section) {
 function renderDigest(payload) {
   const metrics = payload.metrics || {};
   const sections = payload.sections || [];
+  const windowDays = payload.window_days || 14;
 
   setMetric("item-count", metrics.items || 0);
   setMetric("source-count", metrics.sources || 0);
   setMetric("feed-count", metrics.feeds || 9);
   setMetric("failed-count", metrics.failed_feeds || 0);
 
-  updatedLine.textContent = `Current RSS.app feed contents · Updated ${formatDate(payload.generated_at)}` +
+  updatedLine.textContent = `Showing stories from the last ${windowDays} days · Updated ${formatDate(payload.generated_at)}` +
     (payload.refreshing ? " · refreshing" : "");
 
   newsRoot.replaceChildren();
@@ -200,7 +201,7 @@ function renderDigest(payload) {
       renderSectionCards(wrap, section);
     } else {
       const message = section.status === "ok"
-        ? "RSS.app returned no items for this feed."
+        ? `No items published in the last ${windowDays} days.`
         : "This RSS.app feed is temporarily unavailable.";
       wrap.appendChild(el("div", "section-empty", message));
     }
