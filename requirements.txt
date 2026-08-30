@@ -1,5 +1,1 @@
-Flask>=3.1,<4
-requests>=2.31,<3
-feedparser>=6.0.11,<7
-beautifulsoup4>=4.12,<5
-tzdata>=2025.2
+# Standard library only. No third-party Python packages are required.

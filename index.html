@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wyoming Policy News Tracker</title>
+  <meta name="description" content="Wyoming policy news organized from RSS.app feeds.">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="background-shade" aria-hidden="true"></div>
+
+  <main class="page-shell">
+    <header class="hero">
+      <p class="eyebrow">WYOMING POLICY COVERAGE</p>
+      <h1>Wyoming Policy News Tracker</h1>
+      <p class="hero-copy">Current coverage from the RSS.app feeds used by Wyoming Liberty Group, organized into clear policy sections without rewriting the source material.</p>
+    </header>
+
+    <section class="controls" aria-label="Coverage controls">
+      <div>
+        <div class="control-label">Coverage window</div>
+        <div class="window-buttons" id="window-buttons">
+          <button type="button" data-hours="48">48 hours</button>
+          <button type="button" data-hours="72">3 days</button>
+          <button type="button" data-hours="120">5 days</button>
+          <button type="button" data-hours="168">7 days</button>
+        </div>
+      </div>
+      <button type="button" class="refresh-button" id="refresh-button">Refresh feeds</button>
+    </section>
+
+    <section class="summary-strip" aria-label="Feed summary">
+      <div><strong id="item-count">—</strong><span>items</span></div>
+      <div><strong id="source-count">—</strong><span>sources</span></div>
+      <div><strong id="feed-count">9</strong><span>RSS.app feeds</span></div>
+      <div><strong id="failed-count">—</strong><span>feed failures</span></div>
+    </section>
+
+    <div class="updated-line" id="updated-line">Connecting to RSS.app…</div>
+
+    <div id="news-root">
+      <section class="loading-card">
+        <div class="loading-dot"></div>
+        <div>
+          <h2>Loading Wyoming policy coverage</h2>
+          <p>The page is online. RSS.app feeds are loading in the background.</p>
+        </div>
+      </section>
+    </div>
+
+    <details class="feed-status" id="feed-status" hidden>
+      <summary>RSS.app feed status</summary>
+      <div id="feed-status-grid" class="feed-status-grid"></div>
+    </details>
+
+    <footer>
+      <span>Wyoming Policy News Tracker</span>
+      <a href="https://wylib-wyocal-production.up.railway.app" target="_blank" rel="noopener noreferrer">Legislative Calendar</a>
+      <a href="https://wylibertyresearch.org" target="_blank" rel="noopener noreferrer">Wyoming Liberty Research</a>
+    </footer>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

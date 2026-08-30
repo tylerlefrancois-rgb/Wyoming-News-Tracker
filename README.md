@@ -1,14 +1,10 @@
 # Wyoming Policy News Tracker
 
-Clean Flask/Gunicorn rebuild for Railway.
+Clean RSS.app-based rebuild for Wyoming Liberty Group.
 
-- No Streamlit dependency or Streamlit application code.
-- Server-rendered category sections with news cards.
-- Duplicate coverage is grouped into a single story with multiple outlet links.
-- Source-provided RSS descriptions are used instead of AI-generated summaries.
-- Optional RSS.app feeds can be added through `RSS_APP_FEEDS_JSON`.
-- Health endpoint: `/health`.
-
-Railway start command:
-
-`gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120 --access-logfile - --error-logfile -`
+- Uses nine RSS.app feeds supplied by the project owner.
+- Preserves RSS.app category structure and source wording.
+- Removes only exact duplicate article URLs.
+- Uses Python standard library only.
+- Serves a responsive news-card interface over the existing Wyoming background image.
+- Railway starts the service with `python server.py` and checks `/health`.
