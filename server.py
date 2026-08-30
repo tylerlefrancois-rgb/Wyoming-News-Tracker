@@ -16,9 +16,7 @@ from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parent
 PORT = int(os.environ.get("PORT", "8080"))
-CACHE_SECONDS = max(300, int(os.environ.get("NEWS_CACHE_SECONDS", "1800")))
-DEFAULT_HOURS = 120
-ALLOWED_HOURS = {48, 72, 120, 168}
+CACHE_SECONDS = max(120, int(os.environ.get("NEWS_CACHE_SECONDS", "900")))
 
 RSS_APP_FEEDS = [
     {"category": "Organizations", "url": "https://rss.app/feeds/imDlfnj3C7bxj1bO.xml"},
@@ -32,9 +30,10 @@ RSS_APP_FEEDS = [
     {"category": "Marijuana / THC", "url": "https://rss.app/feeds/tMNTYA3qajuOJL2b.xml"},
 ]
 
-_cache = {}
-_refreshing = set()
-_errors = {}
+_cache = None
+_cache_time = 0.0
+_refreshing = False
+_refresh_error = ""
 _lock = threading.Lock()
 
 
@@ -147,15 +146,14 @@ def source_name(node, link):
         return "Source"
 
 
-def parse_feed(xml_bytes, hours):
+def parse_feed(xml_bytes):
     root = ET.fromstring(xml_bytes)
-    now = datetime.now(timezone.utc)
     entries = [node for node in root.iter() if local_name(node.tag) in {"item", "entry"}]
 
     items = []
     seen_links = set()
 
-    for node in entries[:100]:
+    for node in entries[:150]:
         title = child_text(node, {"title"})
         link = entry_link(node)
         if not title or not link or link in seen_links:
@@ -166,10 +164,6 @@ def parse_feed(xml_bytes, hours):
             {"pubdate", "published", "updated", "date", "created"},
         )
         published = parse_date(published_raw)
-        if published is not None:
-            age_hours = (now - published).total_seconds() / 3600
-            if age_hours < -6 or age_hours > hours:
-                continue
 
         summary = child_text(
             node,
@@ -189,42 +183,49 @@ def parse_feed(xml_bytes, hours):
                 "source": source_name(node, link),
                 "published_at": published.isoformat() if published else "",
                 "image": entry_image(node),
+                "_sort": published.timestamp() if published else 0,
             }
         )
 
+    items.sort(key=lambda item: item.get("_sort", 0), reverse=True)
+    for item in items:
+        item.pop("_sort", None)
     return items
 
 
-def fetch_feed(feed, hours):
+def fetch_feed(feed):
     req = Request(
         feed["url"],
         headers={
-            "User-Agent": "Mozilla/5.0 WyomingPolicyNewsTracker/5.0",
+            "User-Agent": "Mozilla/5.0 WyomingPolicyNewsTracker/6.0",
             "Accept": "application/rss+xml, application/xml, text/xml, */*",
+            "Cache-Control": "no-cache",
         },
     )
     try:
-        with urlopen(req, timeout=12) as response:
-            data = response.read(4_000_000)
+        with urlopen(req, timeout=15) as response:
+            data = response.read(6_000_000)
         return {
             "category": feed["category"],
+            "feed_url": feed["url"],
             "status": "ok",
-            "items": parse_feed(data, hours),
+            "items": parse_feed(data),
             "error": "",
         }
     except Exception as exc:
         return {
             "category": feed["category"],
+            "feed_url": feed["url"],
             "status": "error",
             "items": [],
             "error": type(exc).__name__,
         }
 
 
-def build_digest(hours):
+def build_digest():
     results = {}
     with ThreadPoolExecutor(max_workers=len(RSS_APP_FEEDS)) as pool:
-        future_map = {pool.submit(fetch_feed, feed, hours): feed for feed in RSS_APP_FEEDS}
+        future_map = {pool.submit(fetch_feed, feed): feed for feed in RSS_APP_FEEDS}
         for future in as_completed(future_map):
             result = future.result()
             results[result["category"]] = result
@@ -233,31 +234,35 @@ def build_digest(hours):
     total_items = 0
     failed_feeds = 0
     source_names = set()
-    global_seen_links = set()
 
     for feed in RSS_APP_FEEDS:
         category = feed["category"]
         result = results.get(
             category,
-            {"status": "error", "items": [], "error": "Unavailable"},
+            {
+                "category": category,
+                "feed_url": feed["url"],
+                "status": "error",
+                "items": [],
+                "error": "Unavailable",
+            },
         )
+
         if result["status"] != "ok":
             failed_feeds += 1
 
-        items = []
-        for item in result.get("items", []):
-            link = item.get("link", "")
-            if link and link in global_seen_links:
-                continue
-            if link:
-                global_seen_links.add(link)
+        # Do not dedupe across categories. If RSS.app puts the same article in two
+        # policy feeds, it belongs in both sections. parse_feed already removes
+        # exact duplicate links inside an individual feed.
+        items = list(result.get("items", []))
+        for item in items:
             source_names.add(item.get("source", "Source"))
-            items.append(item)
 
         total_items += len(items)
         sections.append(
             {
                 "category": category,
+                "feed_url": feed["url"],
                 "status": result["status"],
                 "error": result.get("error", ""),
                 "items": items,
@@ -266,7 +271,6 @@ def build_digest(hours):
 
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "hours": hours,
         "sections": sections,
         "metrics": {
             "items": total_items,
@@ -277,39 +281,39 @@ def build_digest(hours):
     }
 
 
-def _refresh(hours):
+def _refresh():
+    global _cache, _cache_time, _refreshing, _refresh_error
     try:
-        digest = build_digest(hours)
+        digest = build_digest()
         with _lock:
-            _cache[hours] = {"data": digest, "cached_at": time.time()}
-            _errors.pop(hours, None)
+            _cache = digest
+            _cache_time = time.time()
+            _refresh_error = ""
     except Exception as exc:
         with _lock:
-            _errors[hours] = type(exc).__name__
+            _refresh_error = type(exc).__name__
     finally:
         with _lock:
-            _refreshing.discard(hours)
+            _refreshing = False
 
 
-def ensure_refresh(hours, force=False):
-    now = time.time()
+def ensure_refresh(force=False):
+    global _refreshing
     start = False
 
     with _lock:
-        cached = _cache.get(hours)
-        fresh = cached is not None and now - cached.get("cached_at", 0) < CACHE_SECONDS
-        if (force or not fresh) and hours not in _refreshing:
-            _refreshing.add(hours)
-            _errors.pop(hours, None)
+        fresh = _cache is not None and (time.time() - _cache_time) < CACHE_SECONDS
+        if (force or not fresh) and not _refreshing:
+            _refreshing = True
             start = True
-        refreshing = hours in _refreshing
-        error = _errors.get(hours, "")
+        cached = _cache
+        refreshing = _refreshing
+        error = _refresh_error
 
     if start:
         threading.Thread(
             target=_refresh,
-            args=(hours,),
-            name=f"rss-refresh-{hours}",
+            name="rss-refresh",
             daemon=True,
         ).start()
 
@@ -321,7 +325,7 @@ def json_bytes(payload):
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "WyomingPolicyNews/5.0"
+    server_version = "WyomingPolicyNews/6.0"
 
     def log_message(self, fmt, *args):
         print(
@@ -356,7 +360,12 @@ class Handler(BaseHTTPRequestHandler):
         except FileNotFoundError:
             self.send_error(404)
             return
-        self.send_bytes(200, body, content_type, cache_control)
+        self.send_bytes(
+            status=200,
+            body=body,
+            content_type=content_type,
+            cache_control=cache_control,
+        )
 
     def do_GET(self):
         parsed = urlparse(self.path)
@@ -368,25 +377,22 @@ class Handler(BaseHTTPRequestHandler):
                 {
                     "status": "ok",
                     "app": "wyoming-policy-news-tracker",
-                    "engine": "stdlib-rss-app",
+                    "engine": "rss-app-pass-through",
                 },
             )
             return
 
         if path == "/api/news":
             query = parse_qs(parsed.query)
-            try:
-                hours = int(query.get("hours", [str(DEFAULT_HOURS)])[0])
-            except ValueError:
-                hours = DEFAULT_HOURS
-            if hours not in ALLOWED_HOURS:
-                hours = DEFAULT_HOURS
+            force = query.get("refresh", ["0"])[0].lower() in {
+                "1",
+                "true",
+                "yes",
+            }
+            cached, refreshing, error = ensure_refresh(force=force)
 
-            force = query.get("refresh", ["0"])[0].lower() in {"1", "true", "yes"}
-            cached, refreshing, error = ensure_refresh(hours, force=force)
-
-            if cached:
-                payload = dict(cached["data"])
+            if cached is not None:
+                payload = dict(cached)
                 payload.update({"status": "ready", "refreshing": refreshing})
                 self.send_json(200, payload)
                 return
@@ -394,21 +400,31 @@ class Handler(BaseHTTPRequestHandler):
             if error and not refreshing:
                 self.send_json(
                     503,
-                    {"status": "error", "refreshing": False, "error": error},
+                    {
+                        "status": "error",
+                        "refreshing": False,
+                        "error": error,
+                    },
                 )
                 return
 
-            self.send_json(202, {"status": "loading", "refreshing": True})
+            self.send_json(
+                202,
+                {
+                    "status": "loading",
+                    "refreshing": True,
+                },
+            )
             return
 
         if path in {"/", "/index.html"}:
             self.send_file("index.html", "text/html; charset=utf-8", "no-store")
             return
         if path == "/styles.css":
-            self.send_file("styles.css", "text/css; charset=utf-8", "public, max-age=300")
+            self.send_file("styles.css", "text/css; charset=utf-8", "public, max-age=120")
             return
         if path == "/app.js":
-            self.send_file("app.js", "application/javascript; charset=utf-8", "public, max-age=300")
+            self.send_file("app.js", "application/javascript; charset=utf-8", "public, max-age=120")
             return
         if path == "/assets/wyoming_landscape.jpg":
             self.send_file(
