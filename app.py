@@ -4,140 +4,108 @@ import time
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-from flask import Flask, abort, render_template, request, send_from_directory
+from flask import Flask, render_template, request
 
-from ai_processor import POLICY_CATEGORIES, process_news
-from news_scraper import fetch_wyoming_news
-
+from news_engine import CATEGORIES, build_digest
 
 app = Flask(__name__)
 
-CACHE_TTL_SECONDS = max(300, int(os.getenv("NEWS_CACHE_TTL_SECONDS", "1800")))
-DEFAULT_WINDOW_HOURS = 120
 WINDOWS = {
     48: "48 hours",
     72: "3 days",
     120: "5 days",
     168: "7 days",
 }
+DEFAULT_WINDOW = 120
+CACHE_SECONDS = max(300, int(os.getenv("NEWS_CACHE_SECONDS", "1800")))
 
 _cache: dict[int, dict] = {}
 _cache_lock = threading.Lock()
-ASSET_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
+
 try:
-    MOUNTAIN = ZoneInfo("America/Denver")
+    MOUNTAIN_TIME = ZoneInfo("America/Denver")
 except Exception:
-    MOUNTAIN = timezone.utc
+    MOUNTAIN_TIME = timezone.utc
 
 
-def _display_datetime(value: str) -> str:
+def display_date(value: str) -> str:
     try:
         parsed = datetime.fromisoformat(str(value))
         if parsed.tzinfo is None:
             parsed = parsed.replace(tzinfo=timezone.utc)
-        return parsed.astimezone(MOUNTAIN).strftime("%b %d, %Y · %I:%M %p MT")
+        return parsed.astimezone(MOUNTAIN_TIME).strftime("%b %d, %Y · %I:%M %p MT")
     except Exception:
         return "Date unavailable"
 
 
-def _window_from_request() -> int:
-    raw = request.args.get("window", str(DEFAULT_WINDOW_HOURS)).strip()
+def selected_window() -> int:
     try:
-        value = int(raw)
-    except ValueError:
-        value = DEFAULT_WINDOW_HOURS
-    return value if value in WINDOWS else DEFAULT_WINDOW_HOURS
+        value = int(request.args.get("window", DEFAULT_WINDOW))
+    except (TypeError, ValueError):
+        return DEFAULT_WINDOW
+    return value if value in WINDOWS else DEFAULT_WINDOW
 
 
-def _load_digest(window_hours: int, force_refresh: bool = False) -> dict:
+def get_digest(window_hours: int, force: bool = False) -> dict:
     now = time.time()
     with _cache_lock:
         cached = _cache.get(window_hours)
-        if (
-            not force_refresh
-            and cached
-            and now - cached.get("cached_at", 0) < CACHE_TTL_SECONDS
-        ):
+        if cached and not force and now - cached["cached_at"] < CACHE_SECONDS:
             return cached
 
-    articles, diagnostics = fetch_wyoming_news(
-        max_age_hours=window_hours,
-        per_source_limit=30,
-        max_articles=180,
-    )
-    _, categories, metadata = process_news(articles)
-
-    payload = {
-        "articles": articles,
-        "categories": categories,
-        "metadata": metadata,
-        "diagnostics": diagnostics,
-        "cached_at": now,
-        "updated_at": datetime.now(timezone.utc).isoformat(),
-    }
+    digest = build_digest(window_hours)
+    digest["cached_at"] = now
+    digest["updated_at"] = datetime.now(timezone.utc).isoformat()
 
     with _cache_lock:
-        _cache[window_hours] = payload
-    return payload
+        _cache[window_hours] = digest
+    return digest
 
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}, 200
-
-
-@app.get("/assets/<path:filename>")
-def assets(filename: str):
-    if not os.path.isdir(ASSET_DIR):
-        abort(404)
-    return send_from_directory(ASSET_DIR, filename)
+    return {"status": "ok", "app": "wyoming-policy-news-tracker"}, 200
 
 
 @app.get("/")
 def index():
-    window_hours = _window_from_request()
-    force_refresh = request.args.get("refresh", "").strip().lower() in {"1", "true", "yes"}
+    window_hours = selected_window()
+    force = request.args.get("refresh", "").lower() in {"1", "true", "yes"}
 
-    error_message = ""
-    payload = {
-        "categories": {category: [] for category in POLICY_CATEGORIES},
-        "metadata": {},
-        "diagnostics": {},
-        "updated_at": "",
-    }
-
+    error = ""
     try:
-        payload = _load_digest(window_hours, force_refresh=force_refresh)
-    except Exception:
-        error_message = (
-            "The tracker could not complete a fresh news update. "
-            "The source feeds or processing service may be temporarily unavailable."
-        )
+        digest = get_digest(window_hours, force=force)
+    except Exception as exc:
+        app.logger.exception("News refresh failed")
+        digest = {
+            "categories": {category: [] for category in CATEGORIES},
+            "metadata": {
+                "story_count": 0,
+                "outlet_count": 0,
+                "multi_source_count": 0,
+                "failed_sources": 0,
+            },
+            "diagnostics": {},
+            "updated_at": "",
+        }
+        error = f"The news update failed: {type(exc).__name__}. The app itself is running normally."
 
-    categories = payload.get("categories", {})
-    active_categories = [
-        category for category in POLICY_CATEGORIES if categories.get(category)
-    ]
-    metadata = payload.get("metadata", {})
-    diagnostics = payload.get("diagnostics", {})
+    categories = digest.get("categories", {})
+    active_categories = [category for category in CATEGORIES if categories.get(category)]
 
     return render_template(
         "index.html",
         categories=categories,
-        all_categories=POLICY_CATEGORIES,
         active_categories=active_categories,
-        metadata=metadata,
-        diagnostics=diagnostics,
+        metadata=digest.get("metadata", {}),
+        diagnostics=digest.get("diagnostics", {}),
         window_hours=window_hours,
         window_label=WINDOWS[window_hours],
         windows=WINDOWS,
-        error_message=error_message,
-        updated_label=_display_datetime(payload.get("updated_at", "")),
-        display_datetime=_display_datetime,
+        updated_label=display_date(digest.get("updated_at", "")),
+        display_date=display_date,
+        error=error,
     )
-
-
-
 
 
 if __name__ == "__main__":
