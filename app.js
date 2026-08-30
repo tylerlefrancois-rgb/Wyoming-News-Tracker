@@ -3,6 +3,7 @@ const newsRoot = document.getElementById("news-root");
 const updatedLine = document.getElementById("updated-line");
 const feedStatus = document.getElementById("feed-status");
 const feedStatusGrid = document.getElementById("feed-status-grid");
+const INITIAL_SECTION_LIMIT = 8;
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -127,6 +128,47 @@ function renderFeedStatus(sections) {
   feedStatus.hidden = false;
 }
 
+function renderSectionCards(wrap, section) {
+  const grid = el("div", "story-grid");
+  const hasMore = section.items.length > INITIAL_SECTION_LIMIT;
+  let expanded = false;
+
+  function drawCards() {
+    grid.replaceChildren();
+    const visibleItems = expanded
+      ? section.items
+      : section.items.slice(0, INITIAL_SECTION_LIMIT);
+
+    for (const item of visibleItems) {
+      grid.appendChild(renderCard(item));
+    }
+  }
+
+  drawCards();
+  wrap.appendChild(grid);
+
+  if (!hasMore) return;
+
+  const moreRow = el("div", "show-more-row");
+  const moreButton = el(
+    "button",
+    "show-more-button",
+    `Show more (${section.items.length - INITIAL_SECTION_LIMIT})`,
+  );
+  moreButton.type = "button";
+
+  moreButton.addEventListener("click", () => {
+    expanded = !expanded;
+    drawCards();
+    moreButton.textContent = expanded
+      ? "Show less"
+      : `Show more (${section.items.length - INITIAL_SECTION_LIMIT})`;
+  });
+
+  moreRow.appendChild(moreButton);
+  wrap.appendChild(moreRow);
+}
+
 function renderDigest(payload) {
   const metrics = payload.metrics || {};
   const sections = payload.sections || [];
@@ -155,11 +197,7 @@ function renderDigest(payload) {
     wrap.appendChild(heading);
 
     if (section.items.length) {
-      const grid = el("div", "story-grid");
-      for (const item of section.items) {
-        grid.appendChild(renderCard(item));
-      }
-      wrap.appendChild(grid);
+      renderSectionCards(wrap, section);
     } else {
       const message = section.status === "ok"
         ? "RSS.app returned no items for this feed."
