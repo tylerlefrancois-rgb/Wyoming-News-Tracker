@@ -4,7 +4,7 @@ import time
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-from flask import Flask, render_template, request, send_from_directory
+from flask import Flask, jsonify, render_template, request, send_from_directory
 
 from news_engine import CATEGORIES, build_digest
 
@@ -21,6 +21,8 @@ CACHE_SECONDS = max(300, int(os.getenv("NEWS_CACHE_SECONDS", "1800")))
 ASSET_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
 
 _cache: dict[int, dict] = {}
+_refreshing: set[int] = set()
+_refresh_errors: dict[int, str] = {}
 _cache_lock = threading.Lock()
 
 try:
@@ -39,28 +41,65 @@ def display_date(value: str) -> str:
         return "Date unavailable"
 
 
-def selected_window() -> int:
+def parse_window(raw_value: object) -> int:
     try:
-        value = int(request.args.get("window", DEFAULT_WINDOW))
+        value = int(raw_value)
     except (TypeError, ValueError):
         return DEFAULT_WINDOW
     return value if value in WINDOWS else DEFAULT_WINDOW
 
 
-def get_digest(window_hours: int, force: bool = False) -> dict:
+def selected_window() -> int:
+    return parse_window(request.args.get("window", DEFAULT_WINDOW))
+
+
+def _refresh_digest(window_hours: int) -> None:
+    try:
+        digest = build_digest(window_hours)
+        digest["cached_at"] = time.time()
+        digest["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+        with _cache_lock:
+            _cache[window_hours] = digest
+            _refresh_errors.pop(window_hours, None)
+    except Exception as exc:
+        app.logger.exception("Background news refresh failed")
+        with _cache_lock:
+            _refresh_errors[window_hours] = type(exc).__name__
+    finally:
+        with _cache_lock:
+            _refreshing.discard(window_hours)
+
+
+def ensure_refresh(window_hours: int, force: bool = False) -> tuple[dict | None, bool, str]:
+    """Return cached news immediately and refresh stale/missing data in the background."""
     now = time.time()
+    start_thread = False
+
     with _cache_lock:
         cached = _cache.get(window_hours)
-        if cached and not force and now - cached["cached_at"] < CACHE_SECONDS:
-            return cached
+        cache_age = now - cached.get("cached_at", 0) if cached else None
+        cache_is_fresh = cached is not None and cache_age is not None and cache_age < CACHE_SECONDS
 
-    digest = build_digest(window_hours)
-    digest["cached_at"] = now
-    digest["updated_at"] = datetime.now(timezone.utc).isoformat()
+        should_refresh = force or not cache_is_fresh
+        if should_refresh and window_hours not in _refreshing:
+            _refreshing.add(window_hours)
+            _refresh_errors.pop(window_hours, None)
+            start_thread = True
 
-    with _cache_lock:
-        _cache[window_hours] = digest
-    return digest
+        refreshing = window_hours in _refreshing
+        error_name = _refresh_errors.get(window_hours, "")
+
+    if start_thread:
+        thread = threading.Thread(
+            target=_refresh_digest,
+            args=(window_hours,),
+            name=f"news-refresh-{window_hours}",
+            daemon=True,
+        )
+        thread.start()
+
+    return cached, refreshing, error_name
 
 
 @app.get("/health")
@@ -73,44 +112,66 @@ def assets(filename: str):
     return send_from_directory(ASSET_DIR, filename)
 
 
+@app.get("/api/news")
+def api_news():
+    window_hours = selected_window()
+    force = request.args.get("refresh", "").lower() in {"1", "true", "yes"}
+    cached, refreshing, error_name = ensure_refresh(window_hours, force=force)
+
+    if cached is not None:
+        return jsonify(
+            {
+                "status": "ready",
+                "refreshing": refreshing,
+                "window_hours": window_hours,
+                "window_label": WINDOWS[window_hours],
+                "updated_label": display_date(cached.get("updated_at", "")),
+                "digest": cached,
+            }
+        )
+
+    if error_name and not refreshing:
+        return (
+            jsonify(
+                {
+                    "status": "error",
+                    "refreshing": False,
+                    "window_hours": window_hours,
+                    "window_label": WINDOWS[window_hours],
+                    "message": f"News refresh failed: {error_name}",
+                }
+            ),
+            503,
+        )
+
+    return (
+        jsonify(
+            {
+                "status": "loading",
+                "refreshing": True,
+                "window_hours": window_hours,
+                "window_label": WINDOWS[window_hours],
+            }
+        ),
+        202,
+    )
+
+
 @app.get("/")
 def index():
     window_hours = selected_window()
     force = request.args.get("refresh", "").lower() in {"1", "true", "yes"}
 
-    error = ""
-    try:
-        digest = get_digest(window_hours, force=force)
-    except Exception as exc:
-        app.logger.exception("News refresh failed")
-        digest = {
-            "categories": {category: [] for category in CATEGORIES},
-            "metadata": {
-                "story_count": 0,
-                "outlet_count": 0,
-                "multi_source_count": 0,
-                "failed_sources": 0,
-            },
-            "diagnostics": {},
-            "updated_at": "",
-        }
-        error = f"The news update failed: {type(exc).__name__}. The app itself is running normally."
-
-    categories = digest.get("categories", {})
-    active_categories = [category for category in CATEGORIES if categories.get(category)]
+    # Trigger collection, but never make the page request wait for external feeds.
+    ensure_refresh(window_hours, force=force)
 
     return render_template(
         "index.html",
-        categories=categories,
-        active_categories=active_categories,
-        metadata=digest.get("metadata", {}),
-        diagnostics=digest.get("diagnostics", {}),
+        categories=CATEGORIES,
         window_hours=window_hours,
         window_label=WINDOWS[window_hours],
         windows=WINDOWS,
-        updated_label=display_date(digest.get("updated_at", "")),
-        display_date=display_date,
-        error=error,
+        force_refresh=force,
     )
 
 
