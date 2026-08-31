@@ -30,7 +30,7 @@ function formatDate(value) {
   }).format(date) + " MT";
 }
 
-function showLoading(message = "RSS.app feeds are loading in the background.") {
+function showLoading(message = "News feeds are loading in the background.") {
   newsRoot.replaceChildren();
   const card = el("section", "loading-card");
   card.appendChild(el("div", "loading-dot"));
@@ -45,7 +45,7 @@ function showError(message) {
   newsRoot.replaceChildren();
   const card = el("section", "error-card");
   const copy = el("div");
-  copy.appendChild(el("h2", "", "The site is online, but RSS.app could not be loaded."));
+  copy.appendChild(el("h2", "", "The site is online, but the news feeds could not be loaded."));
   copy.appendChild(el("p", "", message || "Try Refresh feeds again in a moment."));
   card.appendChild(copy);
   newsRoot.appendChild(card);
@@ -70,6 +70,11 @@ function renderCard(item) {
   }
 
   const body = el("div", "story-body");
+
+  if (item.organization) {
+    body.appendChild(el("div", "story-organization", item.organization));
+  }
+
   const meta = el("div", "story-meta");
   meta.appendChild(el("span", "story-source", item.source || "Source"));
   meta.appendChild(el("span", "", formatDate(item.published_at)));
@@ -202,7 +207,7 @@ function renderDigest(payload) {
     } else {
       const message = section.status === "ok"
         ? `No items published in the last ${windowDays} days.`
-        : "This RSS.app feed is temporarily unavailable.";
+        : "This news source is temporarily unavailable.";
       wrap.appendChild(el("div", "section-empty", message));
     }
 
@@ -228,14 +233,14 @@ async function loadNews({ force = false, attempt = 0 } = {}) {
           1200,
         );
       } else {
-        showError("The RSS.app feeds are taking longer than expected.");
+        showError("The news feeds are taking longer than expected.");
         refreshButton.disabled = false;
       }
       return;
     }
 
     if (payload.status === "error") {
-      showError(`RSS refresh failed: ${payload.error || "unknown error"}.`);
+      showError(`News refresh failed: ${payload.error || "unknown error"}.`);
       refreshButton.disabled = false;
       return;
     }
@@ -264,9 +269,9 @@ async function loadNews({ force = false, attempt = 0 } = {}) {
 }
 
 refreshButton.addEventListener("click", () => {
-  updatedLine.textContent = "Refreshing all nine RSS.app feeds…";
+  updatedLine.textContent = "Refreshing policy feeds and organization watch…";
   feedStatus.hidden = true;
-  showLoading("A fresh copy of all nine RSS.app feeds is being collected.");
+  showLoading("Refreshing eight RSS.app policy feeds and the expanded organization watch.");
   loadNews({ force: true });
 });
 
