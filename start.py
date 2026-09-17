@@ -2,8 +2,12 @@ import os
 import threading
 from http.server import ThreadingHTTPServer
 
-from server import Handler
+import server
+from freshness import install
 
+
+install(server)
+Handler = server.Handler
 
 assigned_port = int(os.environ.get("PORT", "8080"))
 candidates = [assigned_port, 8501, 8080, 8000, 5000, 3000]
@@ -15,17 +19,17 @@ for candidate in candidates:
 servers = []
 for port in ports:
     try:
-        server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
-        servers.append((port, server))
+        http_server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
+        servers.append((port, http_server))
     except OSError as exc:
         print(f"Skipping unavailable port {port}: {exc}", flush=True)
 
 if not servers:
     raise RuntimeError("No HTTP ports could be opened")
 
-for port, server in servers[1:]:
+for port, http_server in servers[1:]:
     thread = threading.Thread(
-        target=server.serve_forever,
+        target=http_server.serve_forever,
         name=f"http-{port}",
         daemon=True,
     )
